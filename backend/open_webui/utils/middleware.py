@@ -1907,6 +1907,30 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 async def process_chat_response(
     request, response, form_data, user, metadata, model, events, tasks
 ):
+    def persist_codex_thread_id(thread_id: Optional[str]) -> None:
+        if (
+            not thread_id
+            or not metadata.get("chat_id")
+            or metadata.get("chat_id", "").startswith("local:")
+        ):
+            return
+        current = metadata.get("codex_thread_id")
+        if current == thread_id:
+            return
+        metadata["codex_thread_id"] = thread_id
+        Chats.update_chat_meta_by_id(metadata["chat_id"], {"codex_thread_id": thread_id})
+
+    # Capture thread id from upstream response headers when available.
+    response_headers = getattr(response, "headers", None)
+    if response_headers:
+        try:
+            persist_codex_thread_id(
+                response_headers.get("X-Codex-Thread-Id")
+                or response_headers.get("x-codex-thread-id")
+            )
+        except Exception:
+            pass
+
     async def background_tasks_handler():
         message = None
         messages = []
@@ -2163,6 +2187,9 @@ async def process_chat_response(
                             }
                     else:
                         response_data = response
+
+                    if isinstance(response_data, dict):
+                        persist_codex_thread_id(response_data.get("codex_thread_id"))
 
                     if "error" in response_data:
                         error = response_data.get("error")
@@ -2822,6 +2849,11 @@ async def process_chat_response(
                             )
 
                             if data:
+                                if isinstance(data, dict):
+                                    persist_codex_thread_id(
+                                        data.get("codex_thread_id")
+                                    )
+
                                 if "event" in data and not getattr(
                                     request.state, "direct", False
                                 ):

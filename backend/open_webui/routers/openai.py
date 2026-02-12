@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 from typing import Optional
+from urllib.parse import urlparse
 
 import aiohttp
 from aiocache import cached
@@ -62,6 +63,13 @@ log = logging.getLogger(__name__)
 # Utility functions
 #
 ##########################################
+
+
+def is_codex_wrapper_url(url: str) -> bool:
+    """True when this model endpoint points at the local BasedQED codex wrapper."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return host in {"codex-wrapper", "localhost", "127.0.0.1"} and parsed.port == 9000
 
 
 async def send_get_request(url, key=None, user: UserModel = None):
@@ -926,6 +934,14 @@ async def generate_chat_completion(
         request_url = f"{request_url}/chat/completions?api-version={api_version}"
     else:
         request_url = f"{url}/chat/completions"
+
+    # Forward durable chat/thread metadata only to the local codex wrapper backend.
+    if metadata and is_codex_wrapper_url(url):
+        conversation_id = metadata.get("conversation_id") or metadata.get("chat_id")
+        if conversation_id:
+            payload["conversation_id"] = conversation_id
+        if metadata.get("codex_thread_id"):
+            payload["codex_thread_id"] = metadata.get("codex_thread_id")
 
     payload = json.dumps(payload)
 

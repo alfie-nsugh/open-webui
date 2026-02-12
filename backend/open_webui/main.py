@@ -1637,6 +1637,8 @@ async def chat_completion(
         metadata = {
             "user_id": user.id,
             "chat_id": form_data.pop("chat_id", None),
+            "conversation_id": None,
+            "codex_thread_id": None,
             "message_id": form_data.pop("id", None),
             "parent_message": form_data.pop("parent_message", None),
             "parent_message_id": form_data.pop("parent_id", None),
@@ -1675,6 +1677,9 @@ async def chat_completion(
                         status_code=status.HTTP_404_NOT_FOUND,
                         detail=ERROR_MESSAGES.DEFAULT(),
                     )
+                if chat:
+                    metadata["conversation_id"] = chat.id
+                    metadata["codex_thread_id"] = (chat.meta or {}).get("codex_thread_id")
 
                 # Insert chat files from parent message if any
                 parent_message = metadata.get("parent_message") or {}
