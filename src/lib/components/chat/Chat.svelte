@@ -42,7 +42,9 @@
 		functions,
 		selectedFolder,
 		pinnedChats,
-		showEmbeds
+		showEmbeds,
+		showPolicyCanvas,
+		policyCanvasSessionId
 	} from '$lib/stores';
 
 	import {
@@ -90,6 +92,7 @@
 	import Messages from '$lib/components/chat/Messages.svelte';
 	import Navbar from '$lib/components/chat/Navbar.svelte';
 	import ChatControls from './ChatControls.svelte';
+	import PolicyCanvas from './PolicyCanvas.svelte';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import Placeholder from './Placeholder.svelte';
 	import NotificationToast from '../NotificationToast.svelte';
@@ -105,6 +108,7 @@
 	const eventTarget = new EventTarget();
 	let controlPane;
 	let controlPaneComponent;
+	let canvasPane;
 
 	let messageInput;
 
@@ -1211,6 +1215,14 @@
 		taskIds = null;
 	};
 
+	function checkForPlanningTrigger(content: string) {
+		const match = content.match(/\[PLANNING_SESSION:([a-f0-9]+)\]/);
+		if (match) {
+			policyCanvasSessionId.set(match[1]);
+			showPolicyCanvas.set(true);
+		}
+	}
+
 	const chatActionHandler = async (_chatId, actionId, modelId, responseMessageId, event = null) => {
 		const messages = createMessagesList(history, responseMessageId);
 
@@ -1495,6 +1507,9 @@
 
 		if (done) {
 			message.done = true;
+
+			// Check for planning session trigger in completed message
+			checkForPlanningTrigger(message.content);
 
 			if ($settings.responseAutoCopy) {
 				copyToClipboard(message.content);
@@ -2615,6 +2630,13 @@
 						{/if}
 					</div>
 				</Pane>
+
+				{#if $showPolicyCanvas}
+					<PolicyCanvas
+						sessionId={$policyCanvasSessionId}
+						bind:pane={canvasPane}
+					/>
+				{/if}
 
 				<ChatControls
 					bind:this={controlPaneComponent}
