@@ -1,8 +1,23 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
+	import { showPolicyCanvas, policyCanvasSessionId } from '$lib/stores';
 
 	const API_BASE = `http://${window.location.hostname}:8000`;
+
+	type PlanningSession = {
+		session_id: string;
+		group_id: string;
+		question: string;
+		status: string;
+		created_at: string;
+		assumption_count: number;
+		resolved_count: number;
+	};
+
+	let planningSessions: PlanningSession[] = [];
+	let planningLoading = true;
 
 	type AxiomItem = {
 		symbol: string;
@@ -42,6 +57,40 @@
 	// Per-item inline edit toggle: stage_id -> { [symbol]: boolean }
 	let editOpen: Record<string, Record<string, boolean>> = {};
 
+	async function loadPlanningSessions() {
+		planningLoading = true;
+		try {
+			const res = await fetch(`${API_BASE}/planning/active`);
+			if (!res.ok) throw new Error(await res.text());
+			planningSessions = await res.json();
+		} catch (e: any) {
+			toast.error(`Failed to load planning sessions: ${e.message}`);
+		} finally {
+			planningLoading = false;
+		}
+	}
+
+	function resumeSession(session: PlanningSession) {
+		policyCanvasSessionId.set(session.session_id);
+		showPolicyCanvas.set(true);
+		goto('/');
+	}
+
+	function statusBadgeClass(status: string): string {
+		switch (status) {
+			case 'pending':
+				return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+			case 'awaiting_confirmation':
+				return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+			case 'confirmed':
+				return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+			case 'expired':
+				return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+			default:
+				return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+		}
+	}
+
 	async function loadPending() {
 		refreshing = true;
 		try {
@@ -66,6 +115,7 @@
 
 	onMount(() => {
 		loadPending();
+		loadPlanningSessions();
 	});
 
 	function getEditedLeanBody(item: ProofDetail): string | null {
@@ -140,12 +190,12 @@
 	<title>Review Queue — BasedQED</title>
 </svelte:head>
 
-<div class="flex flex-col h-full w-full max-w-4xl mx-auto p-6 gap-4">
+<div class="flex flex-col h-full w-full max-w-4xl mx-auto p-6 gap-6">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-bold dark:text-white">Expert Review Queue</h1>
 		<button
 			class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-			on:click={loadPending}
+			on:click={() => { loadPending(); loadPlanningSessions(); }}
 			disabled={refreshing}
 		>
 			<svg xmlns="http://www.w3.org/2000/svg" class="size-4 {refreshing ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -154,6 +204,52 @@
 			Refresh
 		</button>
 	</div>
+
+	<!-- Planning Sessions section -->
+	<section>
+		<h2 class="text-lg font-semibold dark:text-white mb-3">Planning Sessions</h2>
+		{#if planningLoading}
+			<p class="text-sm text-gray-500 dark:text-gray-400">Loading planning sessions...</p>
+		{:else if planningSessions.length === 0}
+			<div class="flex items-center gap-2 py-4 text-gray-500 dark:text-gray-400 text-sm">
+				<svg xmlns="http://www.w3.org/2000/svg" class="size-5 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
+				</svg>
+				No active planning sessions.
+			</div>
+		{:else}
+			<div class="flex flex-col gap-2">
+				{#each planningSessions as session (session.session_id)}
+					<div class="border dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 shadow-sm p-4 flex items-start justify-between gap-4">
+						<div class="flex-1 min-w-0">
+							<p class="text-sm font-medium dark:text-white truncate">{session.question}</p>
+							<div class="flex items-center gap-3 mt-1.5 flex-wrap">
+								<span class="px-2 py-0.5 text-xs font-semibold rounded {statusBadgeClass(session.status)}">
+									{session.status.replace('_', ' ').toUpperCase()}
+								</span>
+								<span class="text-xs text-gray-500 dark:text-gray-400">
+									{session.resolved_count}/{session.assumption_count} assumptions resolved
+								</span>
+								<span class="text-xs text-gray-400 dark:text-gray-500">
+									{formatDate(session.created_at)}
+								</span>
+							</div>
+						</div>
+						<button
+							class="px-3 py-1.5 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition shrink-0"
+							on:click={() => resumeSession(session)}
+						>
+							Resume
+						</button>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</section>
+
+	<!-- Proof Review Queue section -->
+	<section>
+		<h2 class="text-lg font-semibold dark:text-white mb-3">Proof Review Queue</h2>
 
 	{#if loading}
 		<div class="flex items-center justify-center py-20 text-gray-500 dark:text-gray-400">
@@ -399,4 +495,5 @@
 			</div>
 		{/each}
 	{/if}
+	</section>
 </div>
