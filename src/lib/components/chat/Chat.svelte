@@ -109,6 +109,7 @@
 	let controlPane;
 	let controlPaneComponent;
 	let canvasPane;
+	let canvasPaneComponent;
 
 	let messageInput;
 
@@ -543,6 +544,7 @@
 
 	let pageSubscribe = null;
 	let showControlsSubscribe = null;
+	let showCanvasSubscribe = null;
 	let selectedFolderSubscribe = null;
 
 	const stopAudio = () => {
@@ -625,6 +627,20 @@
 			}
 		});
 
+		showCanvasSubscribe = showPolicyCanvas.subscribe(async (value) => {
+			if (canvasPane && !$mobile) {
+				try {
+					if (value) {
+						canvasPaneComponent?.openPane();
+					} else {
+						canvasPane.collapse();
+					}
+				} catch (e) {
+					// ignore
+				}
+			}
+		});
+
 		selectedFolderSubscribe = selectedFolder.subscribe(async (folder) => {
 			if (
 				folder?.data?.model_ids &&
@@ -644,6 +660,7 @@
 		try {
 			pageSubscribe();
 			showControlsSubscribe();
+			showCanvasSubscribe?.();
 			selectedFolderSubscribe();
 			chatIdUnsubscriber?.();
 			window.removeEventListener('message', onMessageHandler);
@@ -1216,7 +1233,7 @@
 	};
 
 	function checkForPlanningTrigger(content: string) {
-		const match = content.match(/\[PLANNING_SESSION:([a-f0-9]+)\]/);
+		const match = content.match(/\[PLANNING_SESSION:([a-f0-9]{32})\]/);
 		if (match) {
 			policyCanvasSessionId.set(match[1]);
 			showPolicyCanvas.set(true);
@@ -2633,6 +2650,7 @@
 
 				{#if $showPolicyCanvas}
 					<PolicyCanvas
+						bind:this={canvasPaneComponent}
 						sessionId={$policyCanvasSessionId}
 						bind:pane={canvasPane}
 					/>
