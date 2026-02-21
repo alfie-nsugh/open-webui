@@ -90,6 +90,9 @@ export const showOverview = writable(false);
 export const showArtifacts = writable(false);
 export const showCallOverlay = writable(false);
 
+export const showPolicyCanvas = writable(false);
+export const policyCanvasSessionId = writable<string | null>(null);
+
 export const artifactCode = writable(null);
 export const artifactContents = writable(null);
 
