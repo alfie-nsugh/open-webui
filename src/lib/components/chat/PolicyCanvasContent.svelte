@@ -5,9 +5,9 @@
 	// ── Props ──────────────────────────────────────────────────────────────
 	export let sessionId = null;
 	export let onProceed = null;
+	export let apiBase = 'http://localhost:8000';
 
 	// ── Constants ──────────────────────────────────────────────────────────
-	const API_BASE = 'http://localhost:8000';
 	const POLL_INTERVAL_MS = 3000;
 
 	// ── State ─────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@
 		if (!sid) return;
 
 		try {
-			const res = await fetch(`${API_BASE}/planning/${sid}`);
+			const res = await fetch(`${apiBase}/planning/${sid}`);
 			if (!res.ok) {
 				error = `Failed to fetch session: ${res.status}`;
 				return;
@@ -88,7 +88,7 @@
 			};
 
 			const res = await fetch(
-				`${API_BASE}/planning/${sid}/assumptions/${assumptionId}/decide`,
+				`${apiBase}/planning/${sid}/assumptions/${assumptionId}/decide`,
 				{
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -116,7 +116,7 @@
 
 		confirmSubmitting = true;
 		try {
-			const res = await fetch(`${API_BASE}/planning/${sid}/confirm`, {
+			const res = await fetch(`${apiBase}/planning/${sid}/confirm`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ confirm: true })
@@ -145,7 +145,7 @@
 
 		flagSubmitting = true;
 		try {
-			const res = await fetch(`${API_BASE}/planning/${sid}/confirm`, {
+			const res = await fetch(`${apiBase}/planning/${sid}/confirm`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ confirm: false, flag_reason: reason })

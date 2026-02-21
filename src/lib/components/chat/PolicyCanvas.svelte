@@ -10,6 +10,7 @@
 	export let pane;
 	export let sessionId = null;
 	export let onProceed = null;
+	export let apiBase = 'http://localhost:8000';
 
 	// ── Pane layout (mirrors ChatControls) ────────────────────────────────
 	let mediaQuery;
@@ -49,6 +50,8 @@
 		dragged = false;
 	};
 
+	let resizeObserver;
+
 	// ── Lifecycle ─────────────────────────────────────────────────────────
 	onMount(() => {
 		mediaQuery = window.matchMedia('(min-width: 1024px)');
@@ -57,7 +60,35 @@
 
 		const container = document.getElementById('chat-container');
 		if (container) {
+			// initialize the minSize based on the container width
 			minSize = Math.floor((350 / container.clientWidth) * 100);
+
+			// Create a ResizeObserver to dynamically recalculate minSize
+			resizeObserver = new ResizeObserver((entries) => {
+				for (let entry of entries) {
+					const width = entry.contentRect.width;
+					// calculate the percentage of 350px
+					const percentage = (350 / width) * 100;
+					// set the minSize to the percentage, must be an integer
+					minSize = Math.floor(percentage);
+
+					if ($showPolicyCanvas) {
+						if (pane && pane.isExpanded() && pane.getSize() < minSize) {
+							pane.resize(minSize);
+						} else {
+							let size = Math.floor(
+								(parseInt(localStorage?.policyCanvasSize) / container.clientWidth) * 100
+							);
+							if (size < minSize) {
+								pane.resize(minSize);
+							}
+						}
+					}
+				}
+			});
+
+			// Start observing the container's size changes
+			resizeObserver.observe(container);
 		}
 
 		document.addEventListener('mousedown', onMouseDown);
@@ -67,6 +98,9 @@
 	onDestroy(() => {
 		showPolicyCanvas.set(false);
 
+		if (resizeObserver) {
+			resizeObserver.disconnect();
+		}
 		if (mediaQuery) {
 			mediaQuery.removeEventListener('change', handleMediaQuery);
 		}
@@ -88,7 +122,7 @@
 			}}
 		>
 			<div class="h-full bg-white dark:bg-gray-900 dark:text-gray-100">
-				<PolicyCanvasContent {sessionId} {onProceed} />
+				<PolicyCanvasContent {sessionId} {onProceed} {apiBase} />
 			</div>
 		</Drawer>
 	{/if}
@@ -137,7 +171,7 @@
 					class="w-full bg-white dark:shadow-lg dark:bg-gray-850 z-40 pointer-events-auto overflow-y-auto scrollbar-hidden"
 					id="policy-canvas-container"
 				>
-					<PolicyCanvasContent {sessionId} {onProceed} />
+					<PolicyCanvasContent {sessionId} {onProceed} {apiBase} />
 				</div>
 			</div>
 		{/if}
