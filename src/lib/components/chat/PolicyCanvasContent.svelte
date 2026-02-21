@@ -458,6 +458,13 @@
 								Source: {assumption.source_reference}
 							</p>
 						{/if}
+						{#if assumption.source_excerpt}
+							<blockquote
+								class="text-xs text-gray-600 dark:text-gray-400 border-l-2 border-gray-200 dark:border-gray-700 pl-2 italic"
+							>
+								{assumption.source_excerpt}
+							</blockquote>
+						{/if}
 						{#if assumption.agent_reasoning}
 							<p class="text-xs text-gray-500 dark:text-gray-400 italic">
 								Agent: &ldquo;{assumption.agent_reasoning}&rdquo;

@@ -15,11 +15,11 @@
 	// ── Pane layout (mirrors ChatControls) ────────────────────────────────
 	let mediaQuery;
 	let largeScreen = false;
-	let dragged = false;
 	let minSize = 0;
 
 	// ── Pane helpers ──────────────────────────────────────────────────────
 	export const openPane = () => {
+		if (!pane) return;
 		if (parseInt(localStorage?.policyCanvasSize)) {
 			const container = document.getElementById('chat-container');
 			if (container) {
@@ -40,14 +40,6 @@
 			largeScreen = false;
 			pane = null;
 		}
-	};
-
-	const onMouseDown = () => {
-		dragged = true;
-	};
-
-	const onMouseUp = () => {
-		dragged = false;
 	};
 
 	let resizeObserver;
@@ -79,7 +71,7 @@
 							let size = Math.floor(
 								(parseInt(localStorage?.policyCanvasSize) / container.clientWidth) * 100
 							);
-							if (size < minSize) {
+							if (pane && size < minSize) {
 								pane.resize(minSize);
 							}
 						}
@@ -91,8 +83,6 @@
 			resizeObserver.observe(container);
 		}
 
-		document.addEventListener('mousedown', onMouseDown);
-		document.addEventListener('mouseup', onMouseUp);
 	});
 
 	onDestroy(() => {
@@ -104,8 +94,6 @@
 		if (mediaQuery) {
 			mediaQuery.removeEventListener('change', handleMediaQuery);
 		}
-		document.removeEventListener('mousedown', onMouseDown);
-		document.removeEventListener('mouseup', onMouseUp);
 	});
 
 	$: if (sessionId) {
