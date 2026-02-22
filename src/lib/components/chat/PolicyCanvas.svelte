@@ -9,7 +9,6 @@
 	// ── Props ──────────────────────────────────────────────────────────────
 	export let pane;
 	export let sessionId = null;
-	export let onProceed = null;
 	export let apiBase = 'http://localhost:8000';
 
 	// ── Pane layout (mirrors ChatControls) ────────────────────────────────
@@ -99,6 +98,7 @@
 	$: if (sessionId) {
 		policyCanvasSessionId.set(sessionId);
 	}
+
 </script>
 
 {#if !largeScreen}
@@ -110,7 +110,7 @@
 			}}
 		>
 			<div class="h-full bg-white dark:bg-gray-900 dark:text-gray-100">
-				<PolicyCanvasContent {sessionId} {onProceed} {apiBase} />
+				<PolicyCanvasContent {sessionId} {apiBase} />
 			</div>
 		</Drawer>
 	{/if}
@@ -159,7 +159,7 @@
 					class="w-full bg-white dark:shadow-lg dark:bg-gray-850 z-40 pointer-events-auto overflow-y-auto scrollbar-hidden"
 					id="policy-canvas-container"
 				>
-					<PolicyCanvasContent {sessionId} {onProceed} {apiBase} />
+					<PolicyCanvasContent {sessionId} {apiBase} />
 				</div>
 			</div>
 		{/if}

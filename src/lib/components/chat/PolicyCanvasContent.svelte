@@ -4,7 +4,6 @@
 
 	// ── Props ──────────────────────────────────────────────────────────────
 	export let sessionId = null;
-	export let onProceed = null;
 	export let apiBase = 'http://localhost:8000';
 
 	// ── Constants ──────────────────────────────────────────────────────────
@@ -545,18 +544,7 @@
 					</div>
 				{/each}
 
-				<!-- Proceed button (all resolved) -->
-				{#if allResolved && onProceed}
-					<div class="pt-2">
-						<button
-							class="w-full py-2 text-sm font-medium rounded-lg bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white transition-colors"
-							on:click={onProceed}
-						>
-							Proceed to Formalization
-						</button>
-					</div>
-				{/if}
-			</div>
+				</div>
 		{:else if session.status === 'executing'}
 			<!-- Executing state -->
 			<div class="space-y-4">
