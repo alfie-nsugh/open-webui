@@ -237,12 +237,29 @@
 								</span>
 							</div>
 						</div>
-						<button
-							class="px-3 py-1.5 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition shrink-0"
-							on:click={() => resumeSession(session)}
-						>
-							Resume
-						</button>
+						{#if session.status === 'post_flight'}
+							<button
+								class="px-3 py-1.5 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition shrink-0"
+								on:click={() => resumeSession(session)}
+							>
+								Review
+							</button>
+						{:else if session.status === 'executing'}
+							<span class="px-2 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 shrink-0">
+								Executing
+							</span>
+						{:else if session.status === 'planning'}
+							<button
+								class="px-3 py-1.5 text-sm font-medium rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition shrink-0"
+								on:click={() => resumeSession(session)}
+							>
+								Resolve
+							</button>
+						{:else}
+							<span class="px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 shrink-0">
+								{session.status}
+							</span>
+						{/if}
 					</div>
 				{/each}
 			</div>
