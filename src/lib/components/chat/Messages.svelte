@@ -435,7 +435,7 @@
 						</Loader>
 					{/if}
 					<ul role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false">
-						{#each messages as message, messageIdx (message.id)}
+						{#each messages.filter(m => !m.hidden) as message, messageIdx (message.id)}
 							<Message
 								{chatId}
 								bind:history

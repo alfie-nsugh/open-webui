@@ -609,16 +609,12 @@
 
 			function trySend() {
 				if (generating) {
-					// Agent still running — it should detect resolution via polling.
-					// Re-check after its turn ends in case it missed it.
 					console.log('[BasedQED] planning resolved, agent generating — will retry in 5s');
 					setTimeout(trySend, 5000);
 					return;
 				}
 				console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid);
-				submitPrompt(
-					`All planning assumptions have been resolved. Continue with formalization using the expert's approved choices.`
-				);
+				continueAfterPlanning(sid);
 			}
 			trySend();
 		});
@@ -1655,6 +1651,49 @@
 	//////////////////////////
 	// Chat functions
 	//////////////////////////
+
+	const continueAfterPlanning = async (sessionId: string) => {
+		// Fetch resolved choices to include in the continuation context
+		let choicesContext = '';
+		try {
+			const res = await fetch(`${BASEDQED_API}/planning/${sessionId}/status`);
+			if (res.ok) {
+				const status = await res.json();
+				choicesContext = status.resolved_choices
+					?.map((c) => `- ${c.question_text}: ${c.selected_label ?? c.custom_response}`)
+					.join('\n') ?? '';
+			}
+		} catch (e) {
+			console.warn('[BasedQED] failed to fetch resolved choices:', e);
+		}
+
+		const continuationPrompt = choicesContext
+			? `All planning assumptions resolved. Expert choices:\n${choicesContext}\nContinue with formalization using these exact interpretations.`
+			: `All planning assumptions resolved. Continue with formalization using the expert's approved choices.`;
+
+		// Create a hidden user message (exists in history for agent context, not rendered)
+		let userMessageId = uuidv4();
+		const messages = createMessagesList(history, history.currentId);
+		let userMessage = {
+			id: userMessageId,
+			parentId: messages.length !== 0 ? messages.at(-1).id : null,
+			childrenIds: [],
+			role: 'user',
+			content: continuationPrompt,
+			hidden: true,
+			timestamp: Math.floor(Date.now() / 1000),
+			models: selectedModels
+		};
+
+		history.messages[userMessageId] = userMessage;
+		history.currentId = userMessageId;
+
+		if (messages.length !== 0) {
+			history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+		}
+
+		await sendMessage(history, userMessageId);
+	};
 
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
