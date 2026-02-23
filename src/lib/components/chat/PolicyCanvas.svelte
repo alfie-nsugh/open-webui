@@ -16,30 +16,20 @@
 	let largeScreen = false;
 	let minSize = 0;
 
-	// ── Pane helpers ──────────────────────────────────────────────────────
+	// ── Pane helpers ─────────────────────────────────────────────────────
 	export const openPane = () => {
-		if (!pane) return;
+		console.log('[PolicyCanvas] openPane called — pane:', !!pane,
+			'minSize:', minSize, 'size:', pane?.getSize?.());
 		if (parseInt(localStorage?.policyCanvasSize)) {
 			const container = document.getElementById('chat-container');
-			if (container) {
-				let size = Math.floor(
-					(parseInt(localStorage?.policyCanvasSize) / container.clientWidth) * 100
-				);
-				pane.resize(size);
-			}
+			let size = Math.floor(
+				(parseInt(localStorage?.policyCanvasSize) / container.clientWidth) * 100
+			);
+			pane.resize(size);
 		} else {
-			// Fallback: if minSize hasn't been calculated yet by ResizeObserver, compute inline
-			let effectiveMinSize = minSize;
-			if (effectiveMinSize === 0) {
-				const container = document.getElementById('chat-container');
-				if (container) {
-					effectiveMinSize = Math.floor((350 / container.clientWidth) * 100);
-				}
-			}
-			if (effectiveMinSize > 0) {
-				pane.resize(effectiveMinSize);
-			}
+			pane.resize(minSize);
 		}
+		console.log('[PolicyCanvas] after resize — size:', pane?.getSize?.());
 	};
 
 	const handleMediaQuery = async (e) => {
@@ -109,11 +99,6 @@
 		policyCanvasSessionId.set(sessionId);
 	}
 
-	// Open the pane once both the Pane API object and the show flag are ready.
-	// Fixes a race where showPolicyCanvas is set before the Pane has mounted.
-	$: if ($showPolicyCanvas && pane && minSize > 0) {
-		requestAnimationFrame(() => openPane());
-	}
 
 </script>
 
@@ -146,7 +131,7 @@
 		bind:pane
 		defaultSize={0}
 		onResize={(size) => {
-			if ($showPolicyCanvas && pane && pane.isExpanded()) {
+			if ($showPolicyCanvas && pane && size > 0) {
 				if (size < minSize) {
 					pane.resize(minSize);
 				}
@@ -162,11 +147,11 @@
 					}
 				}
 			}
+			// Treat manual drag to 0 as a close
+			if (size === 0 && $showPolicyCanvas) {
+				showPolicyCanvas.set(false);
+			}
 		}}
-		onCollapse={() => {
-			showPolicyCanvas.set(false);
-		}}
-		collapsible={true}
 		class="z-10 bg-white dark:bg-gray-850"
 	>
 		{#if $showPolicyCanvas}

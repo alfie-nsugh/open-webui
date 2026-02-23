@@ -110,6 +110,49 @@
 	let controlPaneComponent;
 	let canvasPane;
 	let canvasPaneComponent;
+	let chatPaneGroup;
+
+	// Catch the late-binding case: canvasPane arrives AFTER showPolicyCanvas is set.
+	// Uses setLayout() to bypass paneforge's resize algorithm which cannot take space
+	// from panes to the LEFT of a middle pane (only from the RIGHT).
+	$: if (chatPaneGroup && $showPolicyCanvas && !$mobile) {
+		tick().then(() => {
+			try {
+				openCanvasViaLayout();
+			} catch (e) {}
+		});
+	}
+
+	function openCanvasViaLayout() {
+		if (!chatPaneGroup) return;
+		const layout = chatPaneGroup.getLayout();
+		// layout = [main, canvas, controls]
+		const canvasIndex = 1;
+		if (layout[canvasIndex] > 0) return; // already open
+
+		let targetSize = 0;
+		if (parseInt(localStorage?.policyCanvasSize)) {
+			const container = document.getElementById('chat-container');
+			if (container) {
+				targetSize = Math.floor(
+					(parseInt(localStorage.policyCanvasSize) / container.clientWidth) * 100
+				);
+			}
+		}
+		if (targetSize === 0) {
+			const container = document.getElementById('chat-container');
+			if (container) {
+				targetSize = Math.floor((350 / container.clientWidth) * 100);
+			}
+		}
+		if (targetSize <= 0) return;
+
+		const controlsSize = layout[2] ?? 0;
+		const newMain = Math.max(30, 100 - targetSize - controlsSize);
+		const newCanvas = 100 - newMain - controlsSize;
+		console.log('[BasedQED] openCanvasViaLayout:', layout, '->', [newMain, newCanvas, controlsSize]);
+		chatPaneGroup.setLayout([newMain, newCanvas, controlsSize]);
+	}
 
 	// ── BasedQED diagnostic — if this doesn't print, the build is stale ──
 	console.log('%c[BasedQED] Chat.svelte v4 loaded', 'color:lime;font-weight:bold');
@@ -708,15 +751,18 @@
 
 		showCanvasSubscribe = showPolicyCanvas.subscribe(async (value) => {
 			console.log('[BasedQED] showPolicyCanvas changed to', value,
-				'canvasPane:', !!canvasPane, 'mobile:', $mobile,
-				'component:', !!canvasPaneComponent);
-			if (canvasPane && !$mobile) {
+				'paneGroup:', !!chatPaneGroup, 'mobile:', $mobile);
+			if (chatPaneGroup && !$mobile) {
 				try {
 					if (value) {
-						console.log('[BasedQED] calling openPane()');
-						canvasPaneComponent?.openPane();
+						await tick();
+						openCanvasViaLayout();
 					} else {
-						canvasPane.collapse();
+						// Close: set canvas to 0, give space back to main
+						const layout = chatPaneGroup.getLayout();
+						const canvasSize = layout[1] ?? 0;
+						const controlsSize = layout[2] ?? 0;
+						chatPaneGroup.setLayout([100 - controlsSize, 0, controlsSize]);
 					}
 				} catch (e) {
 					console.warn('[BasedQED] pane error:', e);
@@ -2627,7 +2673,7 @@
 				/>
 			{/if}
 
-			<PaneGroup direction="horizontal" class="w-full h-full">
+			<PaneGroup direction="horizontal" class="w-full h-full" bind:paneGroup={chatPaneGroup}>
 				<Pane defaultSize={50} minSize={30} class="h-full flex relative max-w-full flex-col">
 					<Navbar
 						bind:this={navbarElement}
