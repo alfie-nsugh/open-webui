@@ -619,6 +619,26 @@
 			trySend();
 		});
 
+		// Auto-continue when expert approves a proof in the review queue
+		window.addEventListener('hitl-approved', (e) => {
+			const { stageId, groupId, question } = e.detail ?? {};
+			if (!stageId) return;
+
+			const key = `hitl-${stageId}`;
+			if (planningContinuedSessions.has(key)) return;
+			planningContinuedSessions.add(key);
+
+			function trySend() {
+				if (generating) {
+					setTimeout(trySend, 5000);
+					return;
+				}
+				console.log('[BasedQED] HITL approved, auto-continuing for', stageId);
+				continueAfterHITL(stageId, groupId, question);
+			}
+			trySend();
+		});
+
 		audioQueue.set(new AudioQueue(document.getElementById('audioElement')));
 
 		pageSubscribe = page.subscribe(async (p) => {
@@ -1672,6 +1692,35 @@
 			: `All planning assumptions resolved. Continue with formalization using the expert's approved choices.`;
 
 		// Create a hidden user message (exists in history for agent context, not rendered)
+		let userMessageId = uuidv4();
+		const messages = createMessagesList(history, history.currentId);
+		let userMessage = {
+			id: userMessageId,
+			parentId: messages.length !== 0 ? messages.at(-1).id : null,
+			childrenIds: [],
+			role: 'user',
+			content: continuationPrompt,
+			hidden: true,
+			timestamp: Math.floor(Date.now() / 1000),
+			models: selectedModels
+		};
+
+		history.messages[userMessageId] = userMessage;
+		history.currentId = userMessageId;
+
+		if (messages.length !== 0) {
+			history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+		}
+
+		await sendMessage(history, userMessageId);
+	};
+
+	const continueAfterHITL = async (stageId: string, groupId: string, question: string) => {
+		const continuationPrompt =
+			`The expert has approved and committed your proof for group "${groupId}". ` +
+			`Stage ID: ${stageId}. Original question: "${question}". ` +
+			`Now produce your final answer using the Phase 3 format.`;
+
 		let userMessageId = uuidv4();
 		const messages = createMessagesList(history, history.currentId);
 		let userMessage = {

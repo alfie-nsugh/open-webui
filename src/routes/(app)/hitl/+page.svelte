@@ -164,6 +164,20 @@
 			}
 			const result = await res.json();
 			toast.success(`Decision recorded: ${result.status}`);
+
+			// Notify any open chat that a proof was approved
+			if (decision === 'approve') {
+				window.dispatchEvent(
+					new CustomEvent('hitl-approved', {
+						detail: {
+							stageId: item.stage_id,
+							groupId: item.group_id,
+							question: item.original_question,
+						}
+					})
+				);
+			}
+
 			await loadPending();
 		} catch (e: any) {
 			toast.error(`Decision failed: ${e.message}`);
