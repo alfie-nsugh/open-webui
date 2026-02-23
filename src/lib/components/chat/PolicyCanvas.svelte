@@ -28,7 +28,17 @@
 				pane.resize(size);
 			}
 		} else {
-			pane.resize(minSize);
+			// Fallback: if minSize hasn't been calculated yet by ResizeObserver, compute inline
+			let effectiveMinSize = minSize;
+			if (effectiveMinSize === 0) {
+				const container = document.getElementById('chat-container');
+				if (container) {
+					effectiveMinSize = Math.floor((350 / container.clientWidth) * 100);
+				}
+			}
+			if (effectiveMinSize > 0) {
+				pane.resize(effectiveMinSize);
+			}
 		}
 	};
 
@@ -97,6 +107,12 @@
 
 	$: if (sessionId) {
 		policyCanvasSessionId.set(sessionId);
+	}
+
+	// Open the pane once both the Pane API object and the show flag are ready.
+	// Fixes a race where showPolicyCanvas is set before the Pane has mounted.
+	$: if ($showPolicyCanvas && pane && minSize > 0) {
+		openPane();
 	}
 
 </script>
