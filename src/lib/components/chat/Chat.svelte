@@ -111,6 +111,9 @@
 	let canvasPane;
 	let canvasPaneComponent;
 
+	// ── BasedQED diagnostic — if this doesn't print, the build is stale ──
+	console.log('%c[BasedQED] Chat.svelte v4 loaded', 'color:lime;font-weight:bold');
+
 	let messageInput;
 
 	let autoScroll = true;
@@ -546,6 +549,10 @@
 	let showControlsSubscribe = null;
 	let showCanvasSubscribe = null;
 	let selectedFolderSubscribe = null;
+	let planningPollTimer = null;
+	let planningContinuedSessions = new Set();
+	const PLANNING_POLL_MS = 3000;
+	const BASEDQED_API = `http://${window.location.hostname}:8000`;
 
 	const stopAudio = () => {
 		try {
@@ -555,10 +562,66 @@
 	};
 
 	onMount(async () => {
+		// Set up planning session polling FIRST — before anything else can crash.
+		console.log('[BasedQED] onMount: setting up planning poll to', BASEDQED_API);
+		async function pollForPlanningSessions() {
+			if ($showPolicyCanvas) {
+				console.log('[BasedQED poll] skipped — canvas already showing');
+				return;
+			}
+			try {
+				const url = `${BASEDQED_API}/planning/active`;
+				console.log('[BasedQED poll] fetching', url);
+				const res = await fetch(url);
+				if (!res.ok) {
+					console.warn('[BasedQED poll] HTTP', res.status, res.statusText);
+					return;
+				}
+				const sessions = await res.json();
+				console.log('[BasedQED poll] sessions:', JSON.stringify(sessions));
+				const needsAttention = sessions.find(
+					(s) =>
+						(s.status === 'planning' && s.resolved_count < s.assumption_count) ||
+						s.status === 'post_flight'
+				);
+				if (needsAttention) {
+					console.log('[BasedQED poll] MATCH — opening sidebar for', needsAttention.session_id);
+					policyCanvasSessionId.set(needsAttention.session_id);
+					showPolicyCanvas.set(true);
+				}
+			} catch (e) {
+				console.warn('[BasedQED poll] fetch error:', e.message);
+			}
+		}
+		planningPollTimer = setInterval(pollForPlanningSessions, PLANNING_POLL_MS);
+		pollForPlanningSessions();
+
 		loading = true;
 		console.log('mounted');
 		window.addEventListener('message', onMessageHandler);
 		$socket?.on('events', chatEventHandler);
+
+		// Auto-continue when all planning assumptions are resolved
+		window.addEventListener('planning-resolved', (e) => {
+			const sid = e.detail?.sessionId;
+			if (!sid || planningContinuedSessions.has(sid)) return;
+			planningContinuedSessions.add(sid);
+
+			function trySend() {
+				if (generating) {
+					// Agent still running — it should detect resolution via polling.
+					// Re-check after its turn ends in case it missed it.
+					console.log('[BasedQED] planning resolved, agent generating — will retry in 5s');
+					setTimeout(trySend, 5000);
+					return;
+				}
+				console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid);
+				submitPrompt(
+					`All planning assumptions have been resolved. Continue with formalization using the expert's approved choices.`
+				);
+			}
+			trySend();
+		});
 
 		audioQueue.set(new AudioQueue(document.getElementById('audioElement')));
 
@@ -628,15 +691,19 @@
 		});
 
 		showCanvasSubscribe = showPolicyCanvas.subscribe(async (value) => {
+			console.log('[BasedQED] showPolicyCanvas changed to', value,
+				'canvasPane:', !!canvasPane, 'mobile:', $mobile,
+				'component:', !!canvasPaneComponent);
 			if (canvasPane && !$mobile) {
 				try {
 					if (value) {
+						console.log('[BasedQED] calling openPane()');
 						canvasPaneComponent?.openPane();
 					} else {
 						canvasPane.collapse();
 					}
 				} catch (e) {
-					// ignore
+					console.warn('[BasedQED] pane error:', e);
 				}
 			}
 		});
@@ -663,6 +730,7 @@
 			showCanvasSubscribe?.();
 			selectedFolderSubscribe();
 			chatIdUnsubscriber?.();
+			if (planningPollTimer) clearInterval(planningPollTimer);
 			window.removeEventListener('message', onMessageHandler);
 			$socket?.off('events', chatEventHandler);
 			$audioQueue?.destroy();
@@ -1232,11 +1300,13 @@
 		taskIds = null;
 	};
 
-	function checkForPlanningTrigger(content: string) {
-		const match = content.match(/\[PLANNING_SESSION:([a-f0-9]{32})\]/);
+	function checkForPlanningTrigger(message) {
+		const match = message.content.match(/\[PLANNING_SESSION:([a-f0-9]{32})\]/);
 		if (match) {
 			policyCanvasSessionId.set(match[1]);
 			showPolicyCanvas.set(true);
+			// Strip the marker from the displayed message
+			message.content = message.content.replace(/\s*\[PLANNING_SESSION:[a-f0-9]{32}\]\s*/g, '').trim();
 		}
 	}
 
@@ -1526,7 +1596,7 @@
 			message.done = true;
 
 			// Check for planning session trigger in completed message
-			checkForPlanningTrigger(message.content);
+			checkForPlanningTrigger(message);
 
 			if ($settings.responseAutoCopy) {
 				copyToClipboard(message.content);
@@ -2648,13 +2718,12 @@
 					</div>
 				</Pane>
 
-				{#if $showPolicyCanvas}
-					<PolicyCanvas
-						bind:this={canvasPaneComponent}
-						sessionId={$policyCanvasSessionId}
-						bind:pane={canvasPane}
-					/>
-				{/if}
+				<PolicyCanvas
+					bind:this={canvasPaneComponent}
+					sessionId={$policyCanvasSessionId}
+					bind:pane={canvasPane}
+					apiBase={BASEDQED_API}
+				/>
 
 				<ChatControls
 					bind:this={controlPaneComponent}
