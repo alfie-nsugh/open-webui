@@ -102,6 +102,22 @@
 
 			await fetchSession();
 			error = null;
+
+			// If all assumptions are now resolved, notify Chat.svelte to auto-continue
+			const updated = session?.assumptions ?? [];
+			const nowAllResolved =
+				updated.length > 0 && updated.every((a) => a.status === 'resolved');
+			if (nowAllResolved) {
+				window.dispatchEvent(
+					new CustomEvent('planning-resolved', {
+						detail: { sessionId: sid }
+					})
+				);
+				// Auto-close the canvas after a brief delay so user sees "all resolved"
+				setTimeout(() => {
+					showPolicyCanvas.set(false);
+				}, 2000);
+			}
 		} catch (e) {
 			error = `Connection error: ${e.message}`;
 		} finally {
