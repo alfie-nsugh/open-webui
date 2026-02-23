@@ -112,7 +112,7 @@
 	// Open the pane once both the Pane API object and the show flag are ready.
 	// Fixes a race where showPolicyCanvas is set before the Pane has mounted.
 	$: if ($showPolicyCanvas && pane && minSize > 0) {
-		openPane();
+		requestAnimationFrame(() => openPane());
 	}
 
 </script>
