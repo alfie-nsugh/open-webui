@@ -332,16 +332,6 @@
 						</div>
 					{/if}
 
-					<!-- PDC source text -->
-					{#if item.provenance_text}
-						<div>
-							<p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Source PDC text</p>
-							<div class="rounded-lg bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 p-3 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono text-xs">
-								{item.provenance_text}
-							</div>
-						</div>
-					{/if}
-
 					<!-- Reuse check: imported modules -->
 					{#if item.item_type === 'reuse_check' && item.reused_imports.length > 0}
 						<div>
