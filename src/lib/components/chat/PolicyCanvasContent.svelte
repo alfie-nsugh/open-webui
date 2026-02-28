@@ -96,7 +96,14 @@
 			);
 
 			if (!res.ok) {
-				error = `Failed to submit decision: ${res.status}`;
+				if (res.status === 409) {
+					error = 'This assumption has already been resolved.';
+				} else if (res.status === 403) {
+					error = 'Unable to submit — expert authentication required.';
+				} else {
+					const detail = await res.json().catch(() => null);
+					error = detail?.detail || `Failed to submit decision: ${res.status}`;
+				}
 				return;
 			}
 
