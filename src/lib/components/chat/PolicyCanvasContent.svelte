@@ -22,11 +22,13 @@
 	// Resolved assumption collapse state (true = expanded)
 	let expandedResolved = {};
 
-	// Post-flight state
-	let confirmSubmitting = false;
-	let flagSubmitting = false;
-	let flagReason = '';
-	let showFlagInput = false;
+	// Proof review state (replaces Confirm & Commit)
+	let proofItem = null;
+	let proofLoading = false;
+	let proofEditState = {};
+	let proofEditOpen = {};
+	let proofNotes = '';
+	let proofSubmitting = false;
 
 	// ── Derived ───────────────────────────────────────────────────────────
 	$: assumptions = session?.assumptions ?? [];
@@ -38,10 +40,17 @@
 	$: resolvedAssumptions = assumptions.filter((a) => a.status === 'resolved');
 
 	// Stop polling when session is done
-	$: shouldPoll =
-		session != null &&
-		session.status !== 'complete' &&
-		!(session.status === 'post_flight' && session.post_flight?.status === 'confirmed');
+	$: shouldPoll = session != null && session.status !== 'complete';
+
+	// Auto-fetch proof details when post_flight has a stage_id
+	$: if (
+		session?.status === 'post_flight' &&
+		session?.post_flight?.stage_id &&
+		!proofItem &&
+		!proofLoading
+	) {
+		fetchProofItem(session.post_flight.stage_id);
+	}
 
 	$: if (!shouldPoll && pollTimer) {
 		clearInterval(pollTimer);
@@ -132,60 +141,90 @@
 		}
 	}
 
-	async function confirmPostFlight() {
-		const sid = sessionId ?? $policyCanvasSessionId;
-		if (!sid) return;
-
-		confirmSubmitting = true;
+	async function fetchProofItem(stageId) {
+		proofLoading = true;
 		try {
-			const res = await fetch(`${apiBase}/planning/${sid}/confirm`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ confirm: true })
-			});
-
-			if (!res.ok) {
-				error = `Failed to confirm: ${res.status}`;
-				return;
+			const res = await fetch(`${apiBase}/hitl/${stageId}`);
+			if (res.ok) {
+				proofItem = await res.json();
+			} else {
+				error = `Failed to load proof: ${res.status}`;
 			}
-
-			await fetchSession();
-			error = null;
 		} catch (e) {
 			error = `Connection error: ${e.message}`;
 		} finally {
-			confirmSubmitting = false;
+			proofLoading = false;
 		}
 	}
 
-	async function flagPostFlight() {
-		const sid = sessionId ?? $policyCanvasSessionId;
-		if (!sid) return;
+	function toggleProofEdit(symbol, leanDecl) {
+		if (!proofEditOpen) proofEditOpen = {};
+		if (proofEditOpen[symbol]) {
+			delete proofEditOpen[symbol];
+			delete proofEditState[symbol];
+		} else {
+			proofEditOpen[symbol] = true;
+			if (!proofEditState) proofEditState = {};
+			proofEditState[symbol] = leanDecl;
+		}
+		proofEditOpen = proofEditOpen;
+		proofEditState = proofEditState;
+	}
 
-		const reason = flagReason.trim();
-		if (!reason) return;
+	function hasProofEdits() {
+		if (!proofItem || !proofEditState) return false;
+		const allDecls = [
+			...(proofItem.new_axioms || []),
+			...(proofItem.new_defs || []),
+			...(proofItem.theorem ? [proofItem.theorem] : [])
+		];
+		return allDecls.some((d) => {
+			const edited = proofEditState[d.symbol];
+			return edited !== undefined && edited !== d.lean_decl;
+		});
+	}
 
-		flagSubmitting = true;
+	function getEditedLeanBody() {
+		if (!proofItem?.lean_body) return proofItem?.lean_body;
+		let body = proofItem.lean_body;
+		for (const [symbol, edited] of Object.entries(proofEditState || {})) {
+			const allDecls = [
+				...(proofItem.new_axioms || []),
+				...(proofItem.new_defs || []),
+				...(proofItem.theorem ? [proofItem.theorem] : [])
+			];
+			const original = allDecls.find((d) => d.symbol === symbol);
+			if (original && edited !== original.lean_decl) {
+				body = body.replace(original.lean_decl, edited);
+			}
+		}
+		return body;
+	}
+
+	async function decideProof(decision, withEdits = false) {
+		if (!proofItem) return;
+		proofSubmitting = true;
 		try {
-			const res = await fetch(`${apiBase}/planning/${sid}/confirm`, {
+			const payload = { decision, notes: proofNotes || '' };
+			if (withEdits) {
+				payload.edited_lean_body = getEditedLeanBody();
+			}
+			const res = await fetch(`${apiBase}/hitl/${proofItem.stage_id}/decide`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ confirm: false, flag_reason: reason })
+				body: JSON.stringify(payload)
 			});
-
 			if (!res.ok) {
-				error = `Failed to flag: ${res.status}`;
+				error = `Decision failed: ${res.status}`;
 				return;
 			}
-
 			await fetchSession();
-			showFlagInput = false;
-			flagReason = '';
+			proofItem = null;
 			error = null;
 		} catch (e) {
 			error = `Connection error: ${e.message}`;
 		} finally {
-			flagSubmitting = false;
+			proofSubmitting = false;
 		}
 	}
 
@@ -635,115 +674,125 @@
 				</div>
 			</div>
 		{:else if session.status === 'post_flight'}
-			<!-- Post-flight state -->
 			<div class="space-y-4">
 				{#if session.post_flight}
 					<div class="flex items-center gap-2">
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 20 20"
-							fill="currentColor"
-							class="w-5 h-5 text-green-600 dark:text-green-400"
-						>
-							<path
-								fill-rule="evenodd"
-								d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
-								clip-rule="evenodd"
-							/>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5 text-green-600 dark:text-green-400">
+							<path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
 						</svg>
-						<p class="text-sm font-medium text-gray-700 dark:text-gray-300">
-							Formalization complete
-						</p>
+						<p class="text-sm font-medium text-gray-700 dark:text-gray-300">Formalization complete — review proof</p>
 					</div>
+					<p class="text-sm text-gray-600 dark:text-gray-400">{session.post_flight.summary}</p>
 
-					<p class="text-sm text-gray-600 dark:text-gray-400">
-						{session.post_flight.summary}
-					</p>
-
-					{#if session.post_flight.status === 'pending_confirm'}
-						{#if showFlagInput}
-							<div class="space-y-2">
-								<label
-									class="text-xs font-medium text-gray-500 dark:text-gray-400"
-								>
-									Reason for flagging:
-								</label>
-								<textarea
-									bind:value={flagReason}
-									rows="2"
-									class="w-full text-sm px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-500"
-									placeholder="Describe the issue..."
-								/>
-								<div class="flex gap-2">
-									<button
-										class="flex-1 py-2 text-sm font-medium rounded bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 transition-colors"
-										disabled={!flagReason.trim() || flagSubmitting}
-										on:click={flagPostFlight}
-									>
-										{flagSubmitting ? 'Submitting...' : 'Submit Flag'}
-									</button>
-									<button
-										class="px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-										on:click={() => {
-											showFlagInput = false;
-											flagReason = '';
-										}}
-									>
-										Cancel
-									</button>
+					{#if proofLoading}
+						<p class="text-sm text-gray-400">Loading proof details...</p>
+					{:else if proofItem}
+						<!-- Proof review UI -->
+						{#if proofItem.item_type === 'new_proof'}
+							{#if proofItem.new_axioms?.length > 0}
+								<div>
+									<p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">New axioms ({proofItem.new_axioms.length})</p>
+									<div class="flex flex-col gap-2">
+										{#each proofItem.new_axioms as axiom}
+											<div class="rounded-lg border dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800">
+												<div class="flex items-start justify-between gap-2 mb-1">
+													<div>
+														<span class="font-mono text-sm font-semibold dark:text-white">{axiom.symbol}</span>
+														{#if axiom.plain_comment}
+															<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">"{axiom.plain_comment}"</p>
+														{/if}
+													</div>
+													<button class="text-xs px-2 py-1 rounded border dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition shrink-0" on:click={() => toggleProofEdit(axiom.symbol, axiom.lean_decl)}>
+														{proofEditOpen[axiom.symbol] ? 'Cancel' : 'Edit'}
+													</button>
+												</div>
+												{#if proofEditOpen[axiom.symbol]}
+													<textarea class="w-full text-xs font-mono rounded border dark:border-gray-600 bg-white dark:bg-gray-900 dark:text-white p-2 min-h-[60px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500" bind:value={proofEditState[axiom.symbol]}></textarea>
+												{:else}
+													<pre class="text-xs font-mono bg-white dark:bg-gray-900 rounded p-2 border dark:border-gray-700 whitespace-pre-wrap overflow-x-auto">{axiom.lean_decl}</pre>
+												{/if}
+											</div>
+										{/each}
+									</div>
 								</div>
-							</div>
-						{:else}
-							<div class="flex gap-2 pt-2">
-								<button
-									class="flex-1 py-2 text-sm font-medium rounded-lg bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 text-white disabled:opacity-50 transition-colors"
-									disabled={confirmSubmitting}
-									on:click={confirmPostFlight}
-								>
-									{confirmSubmitting ? 'Confirming...' : 'Confirm & Commit'}
-								</button>
-								<button
-									class="px-3 py-2 text-sm font-medium rounded-lg border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-									on:click={() => {
-										showFlagInput = true;
-									}}
-								>
-									Flag
-								</button>
-							</div>
-						{/if}
-					{:else if session.post_flight.status === 'confirmed'}
-						<div
-							class="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
-						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 20 20"
-								fill="currentColor"
-								class="w-4 h-4"
-							>
-								<path
-									fill-rule="evenodd"
-									d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
-									clip-rule="evenodd"
-								/>
-							</svg>
-							<span class="text-sm font-medium">Confirmed and committed</span>
-						</div>
-					{:else if session.post_flight.status === 'flagged'}
-						<div
-							class="px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
-						>
-							<p class="text-sm font-medium">Flagged for review</p>
-							{#if session.post_flight.flag_reason}
-								<p class="text-xs mt-1">{session.post_flight.flag_reason}</p>
 							{/if}
+
+							{#if proofItem.new_defs?.length > 0}
+								<div>
+									<p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Policy rules / defs ({proofItem.new_defs.length})</p>
+									<div class="flex flex-col gap-2">
+										{#each proofItem.new_defs as def}
+											<div class="rounded-lg border dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800">
+												<div class="flex items-start justify-between gap-2 mb-1">
+													<div>
+														<span class="font-mono text-sm font-semibold dark:text-white">{def.symbol}</span>
+														{#if def.plain_comment}
+															<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">"{def.plain_comment}"</p>
+														{/if}
+													</div>
+													<button class="text-xs px-2 py-1 rounded border dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition shrink-0" on:click={() => toggleProofEdit(def.symbol, def.lean_decl)}>
+														{proofEditOpen[def.symbol] ? 'Cancel' : 'Edit'}
+													</button>
+												</div>
+												{#if proofEditOpen[def.symbol]}
+													<textarea class="w-full text-xs font-mono rounded border dark:border-gray-600 bg-white dark:bg-gray-900 dark:text-white p-2 min-h-[80px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500" bind:value={proofEditState[def.symbol]}></textarea>
+												{:else}
+													<pre class="text-xs font-mono bg-white dark:bg-gray-900 rounded p-2 border dark:border-gray-700 whitespace-pre-wrap overflow-x-auto">{def.lean_decl}</pre>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								</div>
+							{/if}
+
+							{#if proofItem.theorem}
+								<div>
+									<p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Theorem</p>
+									<div class="rounded-lg border dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800">
+										<div class="flex items-start justify-between gap-2 mb-1">
+											<div>
+												<span class="font-mono text-sm font-semibold dark:text-white">{proofItem.theorem.symbol}</span>
+												{#if proofItem.theorem.plain_comment}
+													<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">"{proofItem.theorem.plain_comment}"</p>
+												{/if}
+											</div>
+											<button class="text-xs px-2 py-1 rounded border dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition shrink-0" on:click={() => toggleProofEdit(proofItem.theorem.symbol, proofItem.theorem.lean_decl)}>
+												{proofEditOpen[proofItem.theorem.symbol] ? 'Cancel' : 'Edit'}
+											</button>
+										</div>
+										{#if proofEditOpen[proofItem.theorem.symbol]}
+											<textarea class="w-full text-xs font-mono rounded border dark:border-gray-600 bg-white dark:bg-gray-900 dark:text-white p-2 min-h-[100px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500" bind:value={proofEditState[proofItem.theorem.symbol]}></textarea>
+										{:else}
+											<pre class="text-xs font-mono bg-white dark:bg-gray-900 rounded p-2 border dark:border-gray-700 whitespace-pre-wrap overflow-x-auto">{proofItem.theorem.lean_decl}</pre>
+										{/if}
+									</div>
+								</div>
+							{/if}
+						{/if}
+
+						<!-- Notes -->
+						<div>
+							<label class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1 block">Notes (optional)</label>
+							<input type="text" class="w-full text-sm rounded-lg border dark:border-gray-600 bg-white dark:bg-gray-800 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Add review notes..." bind:value={proofNotes} />
+						</div>
+
+						<!-- Action buttons -->
+						<div class="flex items-center gap-2 flex-wrap pt-2">
+							<button class="flex-1 py-2 text-sm font-medium rounded-lg bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 transition-colors" disabled={proofSubmitting} on:click={() => decideProof('approve')}>
+								{proofSubmitting ? 'Approving...' : 'Approve'}
+							</button>
+							{#if hasProofEdits()}
+								<button class="flex-1 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors" disabled={proofSubmitting} on:click={() => decideProof('approve', true)}>
+									Approve with edits
+								</button>
+							{/if}
+							<button class="px-3 py-2 text-sm font-medium rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50 transition-colors" disabled={proofSubmitting} on:click={() => decideProof('reject')}>
+								Reject
+							</button>
 						</div>
 					{/if}
 				{:else}
-					<p class="text-sm text-gray-500 dark:text-gray-400">
-						Waiting for post-flight summary from agent...
-					</p>
+					<p class="text-sm text-gray-500 dark:text-gray-400">Waiting for post-flight summary from agent...</p>
 				{/if}
 			</div>
 		{:else if session.status === 'complete'}

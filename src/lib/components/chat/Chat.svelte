@@ -608,27 +608,25 @@
 		// Set up planning session polling FIRST — before anything else can crash.
 		console.log('[BasedQED] onMount: setting up planning poll to', BASEDQED_API);
 		async function pollForPlanningSessions() {
-			if ($showPolicyCanvas) {
-				console.log('[BasedQED poll] skipped — canvas already showing');
-				return;
-			}
+			if ($showPolicyCanvas) return;
+
+			// Use $chatId store — NOT $page.params.id — because new conversations
+			// use replaceState() which doesn't trigger SvelteKit route updates,
+			// leaving $page.params.id undefined until a real navigation occurs.
+			const conversationId = $chatId;
+			if (!conversationId) return;
+
 			try {
-				const url = `${BASEDQED_API}/planning/active`;
-				console.log('[BasedQED poll] fetching', url);
+				const url = `${BASEDQED_API}/planning/active?conversation_id=${conversationId}`;
 				const res = await fetch(url);
-				if (!res.ok) {
-					console.warn('[BasedQED poll] HTTP', res.status, res.statusText);
-					return;
-				}
+				if (!res.ok) return;
 				const sessions = await res.json();
-				console.log('[BasedQED poll] sessions:', JSON.stringify(sessions));
 				const needsAttention = sessions.find(
 					(s) =>
 						(s.status === 'planning' && s.resolved_count < s.assumption_count) ||
 						s.status === 'post_flight'
 				);
 				if (needsAttention) {
-					console.log('[BasedQED poll] MATCH — opening sidebar for', needsAttention.session_id);
 					policyCanvasSessionId.set(needsAttention.session_id);
 					showPolicyCanvas.set(true);
 				}
@@ -644,25 +642,27 @@
 		window.addEventListener('message', onMessageHandler);
 		$socket?.on('events', chatEventHandler);
 
-		// Auto-continue when all planning assumptions are resolved
+		// Auto-continue when all planning assumptions are resolved.
+		// If the agent is still generating (polling for resolution inside its turn),
+		// it will detect resolution itself — do NOT send a duplicate continuation.
+		// Only send if the agent's turn already ended before resolution.
 		window.addEventListener('planning-resolved', (e) => {
 			const sid = e.detail?.sessionId;
 			if (!sid || planningContinuedSessions.has(sid)) return;
 			planningContinuedSessions.add(sid);
 
-			function trySend() {
-				if (generating) {
-					console.log('[BasedQED] planning resolved, agent generating — will retry in 5s');
-					setTimeout(trySend, 5000);
-					return;
-				}
-				console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid);
-				continueAfterPlanning(sid);
+			if (generating) {
+				console.log('[BasedQED] planning resolved, agent still generating — agent will handle it');
+				return;
 			}
-			trySend();
+			console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid);
+			continueAfterPlanning(sid);
 		});
 
-		// Auto-continue when expert approves a proof in the review queue
+		// Auto-continue when expert approves a proof in the canvas.
+		// The agent's turn has already ended (post-flight submitted), so
+		// generating should be false. If it's somehow true, skip — don't
+		// retry in a loop that could fire a duplicate turn later.
 		window.addEventListener('hitl-approved', (e) => {
 			const { stageId, groupId, question } = e.detail ?? {};
 			if (!stageId) return;
@@ -671,15 +671,12 @@
 			if (planningContinuedSessions.has(key)) return;
 			planningContinuedSessions.add(key);
 
-			function trySend() {
-				if (generating) {
-					setTimeout(trySend, 5000);
-					return;
-				}
-				console.log('[BasedQED] HITL approved, auto-continuing for', stageId);
-				continueAfterHITL(stageId, groupId, question);
+			if (generating) {
+				console.log('[BasedQED] HITL approved but agent still generating — skipping auto-continue');
+				return;
 			}
-			trySend();
+			console.log('[BasedQED] HITL approved, auto-continuing for', stageId);
+			continueAfterHITL(stageId, groupId, question);
 		});
 
 		audioQueue.set(new AudioQueue(document.getElementById('audioElement')));
