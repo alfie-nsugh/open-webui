@@ -219,6 +219,30 @@
 				return;
 			}
 			await fetchSession();
+
+			if (decision === 'approve') {
+				// Approval needs no agent turn — the agent already answered at staging time.
+				setTimeout(() => {
+					showPolicyCanvas.set(false);
+				}, 2000);
+			} else {
+				// Reject/clarify: notify Chat.svelte so the agent can rework.
+				window.dispatchEvent(
+					new CustomEvent('hitl-feedback', {
+						detail: {
+							stageId: proofItem.stage_id,
+							groupId: proofItem.group_id,
+							question: proofItem.original_question,
+							decision,
+							notes: proofNotes || ''
+						}
+					})
+				);
+				setTimeout(() => {
+					showPolicyCanvas.set(false);
+				}, 2000);
+			}
+
 			proofItem = null;
 			error = null;
 		} catch (e) {

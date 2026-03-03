@@ -654,24 +654,18 @@
 			continueAfterPlanning(sid);
 		});
 
-		// Auto-continue when expert approves a proof in the canvas.
-		// The agent's turn has already ended (post-flight submitted), so
-		// generating should be false. If it's somehow true, skip — don't
-		// retry in a loop that could fire a duplicate turn later.
-		window.addEventListener('hitl-approved', (e) => {
-			const { stageId, groupId, question } = e.detail ?? {};
+		// Auto-continue when expert rejects or requests clarification on a proof.
+		// Approval needs no turn — the agent already answered at staging time.
+		window.addEventListener('hitl-feedback', (e) => {
+			const { stageId, groupId, question, decision, notes } = e.detail ?? {};
 			if (!stageId) return;
 
 			const key = `hitl-${stageId}`;
 			if (planningContinuedSessions.has(key)) return;
 			planningContinuedSessions.add(key);
 
-			if (generating) {
-				console.log('[BasedQED] HITL approved but agent still generating — skipping auto-continue');
-				return;
-			}
-			console.log('[BasedQED] HITL approved, auto-continuing for', stageId);
-			continueAfterHITL(stageId, groupId, question);
+			console.log('[BasedQED] HITL feedback received:', decision, 'for', stageId);
+			continueAfterHITLFeedback(stageId, groupId, question, decision, notes);
 		});
 
 		audioQueue.set(new AudioQueue(document.getElementById('audioElement')));
@@ -1753,11 +1747,21 @@
 		await sendMessage(history, userMessageId);
 	};
 
-	const continueAfterHITL = async (stageId: string, groupId: string, question: string) => {
+	const continueAfterHITLFeedback = async (
+		stageId: string,
+		groupId: string,
+		question: string,
+		decision: string,
+		notes: string
+	) => {
 		const continuationPrompt =
-			`The expert has approved and committed your proof for group "${groupId}". ` +
-			`Stage ID: ${stageId}. Original question: "${question}". ` +
-			`Now produce your final answer using the Phase 3 format.`;
+			decision === 'reject'
+				? `The expert rejected your proof (stage ID: ${stageId}, group: "${groupId}"). ` +
+					`Feedback: "${notes}". Original question: "${question}". ` +
+					`Please address the feedback and re-prove.`
+				: `The expert requested clarification on your proof (stage ID: ${stageId}, group: "${groupId}"). ` +
+					`Feedback: "${notes}". Original question: "${question}". ` +
+					`Please address the clarification request.`;
 
 		let userMessageId = uuidv4();
 		const messages = createMessagesList(history, history.currentId);
