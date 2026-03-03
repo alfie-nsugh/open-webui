@@ -643,18 +643,13 @@
 		$socket?.on('events', chatEventHandler);
 
 		// Auto-continue when all planning assumptions are resolved.
-		// If the agent is still generating (polling for resolution inside its turn),
-		// it will detect resolution itself — do NOT send a duplicate continuation.
-		// Only send if the agent's turn already ended before resolution.
+		// The agent's turn has already ended (v6 prompt: turn ends after creating
+		// planning session). The frontend is the sole continuation mechanism.
 		window.addEventListener('planning-resolved', (e) => {
 			const sid = e.detail?.sessionId;
 			if (!sid || planningContinuedSessions.has(sid)) return;
 			planningContinuedSessions.add(sid);
 
-			if (generating) {
-				console.log('[BasedQED] planning resolved, agent still generating — agent will handle it');
-				return;
-			}
 			console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid);
 			continueAfterPlanning(sid);
 		});
