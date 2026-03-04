@@ -126,7 +126,7 @@
 			if (nowAllResolved) {
 				window.dispatchEvent(
 					new CustomEvent('planning-resolved', {
-						detail: { sessionId: sid }
+						detail: { sessionId: sid, assumptionCount: updated.length }
 					})
 				);
 				// Auto-close the canvas after a brief delay so user sees "all resolved"

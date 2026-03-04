@@ -647,10 +647,14 @@
 		// planning session). The frontend is the sole continuation mechanism.
 		window.addEventListener('planning-resolved', (e) => {
 			const sid = e.detail?.sessionId;
-			if (!sid || planningContinuedSessions.has(sid)) return;
-			planningContinuedSessions.add(sid);
+			const count = e.detail?.assumptionCount ?? 0;
+			// Dedup key includes assumption count so mid-flight amendments
+			// (which append to the same session) get their own auto-continue.
+			const key = `${sid}-${count}`;
+			if (!sid || planningContinuedSessions.has(key)) return;
+			planningContinuedSessions.add(key);
 
-			console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid);
+			console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid, 'count', count);
 			continueAfterPlanning(sid);
 		});
 
