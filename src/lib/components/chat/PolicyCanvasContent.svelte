@@ -726,11 +726,15 @@
 															<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">"{axiom.plain_comment}"</p>
 														{/if}
 													</div>
-													<button class="text-xs px-2 py-1 rounded border dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition shrink-0" on:click={() => toggleProofEdit(axiom.symbol, axiom.lean_decl)}>
-														{proofEditOpen[axiom.symbol] ? 'Cancel' : 'Edit'}
-													</button>
+													{#if !axiom.cnl_rendering}
+														<button class="text-xs px-2 py-1 rounded border dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition shrink-0" on:click={() => toggleProofEdit(axiom.symbol, axiom.lean_decl)}>
+															{proofEditOpen[axiom.symbol] ? 'Cancel' : 'Edit'}
+														</button>
+													{/if}
 												</div>
-												{#if proofEditOpen[axiom.symbol]}
+												{#if axiom.cnl_rendering}
+													<p class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed">{axiom.cnl_rendering}</p>
+												{:else if proofEditOpen[axiom.symbol]}
 													<textarea class="w-full text-xs font-mono rounded border dark:border-gray-600 bg-white dark:bg-gray-900 dark:text-white p-2 min-h-[60px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500" bind:value={proofEditState[axiom.symbol]}></textarea>
 												{:else}
 													<pre class="text-xs font-mono bg-white dark:bg-gray-900 rounded p-2 border dark:border-gray-700 whitespace-pre-wrap overflow-x-auto">{axiom.lean_decl}</pre>
@@ -754,11 +758,15 @@
 															<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">"{def.plain_comment}"</p>
 														{/if}
 													</div>
-													<button class="text-xs px-2 py-1 rounded border dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition shrink-0" on:click={() => toggleProofEdit(def.symbol, def.lean_decl)}>
-														{proofEditOpen[def.symbol] ? 'Cancel' : 'Edit'}
-													</button>
+													{#if !def.cnl_rendering}
+														<button class="text-xs px-2 py-1 rounded border dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition shrink-0" on:click={() => toggleProofEdit(def.symbol, def.lean_decl)}>
+															{proofEditOpen[def.symbol] ? 'Cancel' : 'Edit'}
+														</button>
+													{/if}
 												</div>
-												{#if proofEditOpen[def.symbol]}
+												{#if def.cnl_rendering}
+													<p class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed">{def.cnl_rendering}</p>
+												{:else if proofEditOpen[def.symbol]}
 													<textarea class="w-full text-xs font-mono rounded border dark:border-gray-600 bg-white dark:bg-gray-900 dark:text-white p-2 min-h-[80px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500" bind:value={proofEditState[def.symbol]}></textarea>
 												{:else}
 													<pre class="text-xs font-mono bg-white dark:bg-gray-900 rounded p-2 border dark:border-gray-700 whitespace-pre-wrap overflow-x-auto">{def.lean_decl}</pre>
@@ -780,11 +788,15 @@
 													<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">"{proofItem.theorem.plain_comment}"</p>
 												{/if}
 											</div>
+											{#if !proofItem.theorem.cnl_rendering}
 											<button class="text-xs px-2 py-1 rounded border dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 transition shrink-0" on:click={() => toggleProofEdit(proofItem.theorem.symbol, proofItem.theorem.lean_decl)}>
 												{proofEditOpen[proofItem.theorem.symbol] ? 'Cancel' : 'Edit'}
 											</button>
+										{/if}
 										</div>
-										{#if proofEditOpen[proofItem.theorem.symbol]}
+										{#if proofItem.theorem.cnl_rendering}
+											<p class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed">{proofItem.theorem.cnl_rendering}</p>
+										{:else if proofEditOpen[proofItem.theorem.symbol]}
 											<textarea class="w-full text-xs font-mono rounded border dark:border-gray-600 bg-white dark:bg-gray-900 dark:text-white p-2 min-h-[100px] resize-y focus:outline-none focus:ring-2 focus:ring-blue-500" bind:value={proofEditState[proofItem.theorem.symbol]}></textarea>
 										{:else}
 											<pre class="text-xs font-mono bg-white dark:bg-gray-900 rounded p-2 border dark:border-gray-700 whitespace-pre-wrap overflow-x-auto">{proofItem.theorem.lean_decl}</pre>
