@@ -594,6 +594,8 @@
 	let selectedFolderSubscribe = null;
 	let planningPollTimer = null;
 	let planningContinuedSessions = new Set();
+	let planningResolvedHandler = null;
+	let hitlFeedbackHandler = null;
 	const PLANNING_POLL_MS = 3000;
 	const BASEDQED_API = `http://${window.location.hostname}:8000`;
 
@@ -635,7 +637,12 @@
 			}
 		}
 		planningPollTimer = setInterval(pollForPlanningSessions, PLANNING_POLL_MS);
-		pollForPlanningSessions();
+		// Only poll immediately for existing conversations (chatIdProp set).
+		// New conversations (no chatIdProp) can't have planning sessions yet,
+		// and polling here would race with initNewChat() clearing chatId.
+		if (chatIdProp) {
+			pollForPlanningSessions();
+		}
 
 		loading = true;
 		console.log('mounted');
@@ -645,7 +652,9 @@
 		// Auto-continue when all planning assumptions are resolved.
 		// The agent's turn has already ended (v6 prompt: turn ends after creating
 		// planning session). The frontend is the sole continuation mechanism.
-		window.addEventListener('planning-resolved', (e) => {
+		// IMPORTANT: save handler refs so onDestroy can remove them (prevents
+		// leaked listeners from causing duplicate auto-continues).
+		planningResolvedHandler = (e) => {
 			const sid = e.detail?.sessionId;
 			const count = e.detail?.assumptionCount ?? 0;
 			// Dedup key includes assumption count so mid-flight amendments
@@ -656,11 +665,12 @@
 
 			console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid, 'count', count);
 			continueAfterPlanning(sid);
-		});
+		};
+		window.addEventListener('planning-resolved', planningResolvedHandler);
 
 		// Auto-continue when expert rejects or requests clarification on a proof.
 		// Approval needs no turn — the agent already answered at staging time.
-		window.addEventListener('hitl-feedback', (e) => {
+		hitlFeedbackHandler = (e) => {
 			const { stageId, groupId, question, decision, notes } = e.detail ?? {};
 			if (!stageId) return;
 
@@ -670,7 +680,8 @@
 
 			console.log('[BasedQED] HITL feedback received:', decision, 'for', stageId);
 			continueAfterHITLFeedback(stageId, groupId, question, decision, notes);
-		});
+		};
+		window.addEventListener('hitl-feedback', hitlFeedbackHandler);
 
 		audioQueue.set(new AudioQueue(document.getElementById('audioElement')));
 
@@ -784,6 +795,8 @@
 			chatIdUnsubscriber?.();
 			if (planningPollTimer) clearInterval(planningPollTimer);
 			window.removeEventListener('message', onMessageHandler);
+			if (planningResolvedHandler) window.removeEventListener('planning-resolved', planningResolvedHandler);
+			if (hitlFeedbackHandler) window.removeEventListener('hitl-feedback', hitlFeedbackHandler);
 			$socket?.off('events', chatEventHandler);
 			$audioQueue?.destroy();
 		} catch (e) {
@@ -1134,6 +1147,8 @@
 		await showCallOverlay.set(false);
 		await showOverview.set(false);
 		await showArtifacts.set(false);
+		showPolicyCanvas.set(false);
+		policyCanvasSessionId.set(null);
 
 		if ($page.url.pathname.includes('/c/')) {
 			window.history.replaceState(history.state, '', `/`);
