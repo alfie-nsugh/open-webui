@@ -653,13 +653,15 @@
 		}
 	}
 
-	onMount(async () => {
-		// Connect SSE for batch discovery
+	// Reactively connect SSE when conversation ID becomes available or changes
+	$: {
 		const conversationId = chatIdProp || $chatId;
 		if (conversationId) {
 			connectBatchSSE(conversationId);
 		}
+	}
 
+	onMount(async () => {
 		loading = true;
 		console.log('mounted');
 		window.addEventListener('message', onMessageHandler);
