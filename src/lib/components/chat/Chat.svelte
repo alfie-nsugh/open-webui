@@ -44,7 +44,8 @@
 		pinnedChats,
 		showEmbeds,
 		showPolicyCanvas,
-		policyCanvasSessionId
+		policyCanvasSessionId,
+		policyCanvasBatchId
 	} from '$lib/stores';
 
 	import {
@@ -592,11 +593,10 @@
 	let showControlsSubscribe = null;
 	let showCanvasSubscribe = null;
 	let selectedFolderSubscribe = null;
-	let planningPollTimer = null;
-	let planningContinuedSessions = new Set();
-	let planningResolvedHandler = null;
 	let hitlFeedbackHandler = null;
-	const PLANNING_POLL_MS = 3000;
+	let hitlContinuedKeys = new Set();
+	let eventSource: EventSource | null = null;
+	let batchPollTimer: ReturnType<typeof setInterval> | null = null;
 	const BASEDQED_API = `http://${window.location.hostname}:8000`;
 
 	const stopAudio = () => {
@@ -606,42 +606,58 @@
 		} catch {}
 	};
 
-	onMount(async () => {
-		// Set up planning session polling FIRST — before anything else can crash.
-		console.log('[BasedQED] onMount: setting up planning poll to', BASEDQED_API);
-		async function pollForPlanningSessions() {
-			if ($showPolicyCanvas) return;
+	function connectBatchSSE(conversationId: string) {
+		if (eventSource) eventSource.close();
+		if (batchPollTimer) { clearInterval(batchPollTimer); batchPollTimer = null; }
 
-			// Use $chatId store — NOT $page.params.id — because new conversations
-			// use replaceState() which doesn't trigger SvelteKit route updates,
-			// leaving $page.params.id undefined until a real navigation occurs.
-			const conversationId = $chatId;
-			if (!conversationId) return;
+		eventSource = new EventSource(
+			`${BASEDQED_API}/hitl/events?conversation_id=${conversationId}`
+		);
 
-			try {
-				const url = `${BASEDQED_API}/planning/active?conversation_id=${conversationId}`;
-				const res = await fetch(url);
-				if (!res.ok) return;
-				const sessions = await res.json();
-				const needsAttention = sessions.find(
-					(s) =>
-						(s.status === 'planning' && s.resolved_count < s.assumption_count) ||
-						s.status === 'post_flight'
-				);
-				if (needsAttention) {
-					policyCanvasSessionId.set(needsAttention.session_id);
+		eventSource.addEventListener('batch_created', (e: MessageEvent) => {
+			const data = JSON.parse(e.data);
+			policyCanvasBatchId.set(data.batch_id);
+			showPolicyCanvas.set(true);
+		});
+
+		eventSource.onerror = () => {
+			// SSE failed — start polling fallback
+			if (!batchPollTimer) {
+				batchPollTimer = setInterval(() => pollForBatches(conversationId), 15000);
+			}
+		};
+
+		eventSource.onopen = () => {
+			// SSE reconnected — stop polling
+			if (batchPollTimer) {
+				clearInterval(batchPollTimer);
+				batchPollTimer = null;
+			}
+		};
+	}
+
+	async function pollForBatches(conversationId: string) {
+		try {
+			const resp = await fetch(
+				`${BASEDQED_API}/hitl/batch/pending?conversation_id=${conversationId}`
+			);
+			if (resp.ok) {
+				const batches = await resp.json();
+				if (batches.length > 0) {
+					policyCanvasBatchId.set(batches[0].batch_id);
 					showPolicyCanvas.set(true);
 				}
-			} catch (e) {
-				console.warn('[BasedQED poll] fetch error:', e.message);
 			}
+		} catch (e) {
+			console.warn('[BasedQED] Batch poll failed:', e);
 		}
-		planningPollTimer = setInterval(pollForPlanningSessions, PLANNING_POLL_MS);
-		// Only poll immediately for existing conversations (chatIdProp set).
-		// New conversations (no chatIdProp) can't have planning sessions yet,
-		// and polling here would race with initNewChat() clearing chatId.
-		if (chatIdProp) {
-			pollForPlanningSessions();
+	}
+
+	onMount(async () => {
+		// Connect SSE for batch discovery
+		const conversationId = chatIdProp || $chatId;
+		if (conversationId) {
+			connectBatchSSE(conversationId);
 		}
 
 		loading = true;
@@ -649,37 +665,20 @@
 		window.addEventListener('message', onMessageHandler);
 		$socket?.on('events', chatEventHandler);
 
-		// Auto-continue when all planning assumptions are resolved.
-		// The agent's turn has already ended (v6 prompt: turn ends after creating
-		// planning session). The frontend is the sole continuation mechanism.
-		// IMPORTANT: save handler refs so onDestroy can remove them (prevents
-		// leaked listeners from causing duplicate auto-continues).
-		planningResolvedHandler = (e) => {
-			const sid = e.detail?.sessionId;
-			const count = e.detail?.assumptionCount ?? 0;
-			// Dedup key includes assumption count so mid-flight amendments
-			// (which append to the same session) get their own auto-continue.
-			const key = `${sid}-${count}`;
-			if (!sid || planningContinuedSessions.has(key)) return;
-			planningContinuedSessions.add(key);
-
-			console.log('[BasedQED] all assumptions resolved, auto-continuing for session', sid, 'count', count);
-			continueAfterPlanning(sid);
-		};
-		window.addEventListener('planning-resolved', planningResolvedHandler);
-
 		// Auto-continue when expert rejects or requests clarification on a proof.
 		// Approval needs no turn — the agent already answered at staging time.
+		// IMPORTANT: save handler ref so onDestroy can remove it (prevents
+		// leaked listeners from causing duplicate auto-continues).
 		hitlFeedbackHandler = (e) => {
-			const { stageId, groupId, question, decision, notes } = e.detail ?? {};
-			if (!stageId) return;
+			const { batchId, groupId, question, decision, notes } = e.detail ?? {};
+			if (!batchId) return;
 
-			const key = `hitl-${stageId}`;
-			if (planningContinuedSessions.has(key)) return;
-			planningContinuedSessions.add(key);
+			const key = `hitl-${batchId}`;
+			if (hitlContinuedKeys.has(key)) return;
+			hitlContinuedKeys.add(key);
 
-			console.log('[BasedQED] HITL feedback received:', decision, 'for', stageId);
-			continueAfterHITLFeedback(stageId, groupId, question, decision, notes);
+			console.log('[BasedQED] HITL feedback received:', decision, 'for batch', batchId);
+			continueAfterHITLFeedback(batchId, groupId, question, decision, notes);
 		};
 		window.addEventListener('hitl-feedback', hitlFeedbackHandler);
 
@@ -793,9 +792,9 @@
 			showCanvasSubscribe?.();
 			selectedFolderSubscribe();
 			chatIdUnsubscriber?.();
-			if (planningPollTimer) clearInterval(planningPollTimer);
+			if (eventSource) eventSource.close();
+			if (batchPollTimer) clearInterval(batchPollTimer);
 			window.removeEventListener('message', onMessageHandler);
-			if (planningResolvedHandler) window.removeEventListener('planning-resolved', planningResolvedHandler);
 			if (hitlFeedbackHandler) window.removeEventListener('hitl-feedback', hitlFeedbackHandler);
 			$socket?.off('events', chatEventHandler);
 			$audioQueue?.destroy();
@@ -1149,6 +1148,7 @@
 		await showArtifacts.set(false);
 		showPolicyCanvas.set(false);
 		policyCanvasSessionId.set(null);
+		policyCanvasBatchId.set(null);
 
 		if ($page.url.pathname.includes('/c/')) {
 			window.history.replaceState(history.state, '', `/`);
@@ -1366,16 +1366,6 @@
 
 		taskIds = null;
 	};
-
-	function checkForPlanningTrigger(message) {
-		const match = message.content.match(/\[PLANNING_SESSION:([a-f0-9]{32})\]/);
-		if (match) {
-			policyCanvasSessionId.set(match[1]);
-			showPolicyCanvas.set(true);
-			// Strip the marker from the displayed message
-			message.content = message.content.replace(/\s*\[PLANNING_SESSION:[a-f0-9]{32}\]\s*/g, '').trim();
-		}
-	}
 
 	const chatActionHandler = async (_chatId, actionId, modelId, responseMessageId, event = null) => {
 		const messages = createMessagesList(history, responseMessageId);
@@ -1662,9 +1652,6 @@
 		if (done) {
 			message.done = true;
 
-			// Check for planning session trigger in completed message
-			checkForPlanningTrigger(message);
-
 			if ($settings.responseAutoCopy) {
 				copyToClipboard(message.content);
 			}
@@ -1723,51 +1710,8 @@
 	// Chat functions
 	//////////////////////////
 
-	const continueAfterPlanning = async (sessionId: string) => {
-		// Fetch resolved choices to include in the continuation context
-		let choicesContext = '';
-		try {
-			const res = await fetch(`${BASEDQED_API}/planning/${sessionId}/status`);
-			if (res.ok) {
-				const status = await res.json();
-				choicesContext = status.resolved_choices
-					?.map((c) => `- ${c.question_text}: ${c.selected_label ?? c.custom_response}`)
-					.join('\n') ?? '';
-			}
-		} catch (e) {
-			console.warn('[BasedQED] failed to fetch resolved choices:', e);
-		}
-
-		const continuationPrompt = choicesContext
-			? `All planning assumptions resolved. Expert choices:\n${choicesContext}\nContinue with formalization using these exact interpretations.`
-			: `All planning assumptions resolved. Continue with formalization using the expert's approved choices.`;
-
-		// Create a hidden user message (exists in history for agent context, not rendered)
-		let userMessageId = uuidv4();
-		const messages = createMessagesList(history, history.currentId);
-		let userMessage = {
-			id: userMessageId,
-			parentId: messages.length !== 0 ? messages.at(-1).id : null,
-			childrenIds: [],
-			role: 'user',
-			content: continuationPrompt,
-			hidden: true,
-			timestamp: Math.floor(Date.now() / 1000),
-			models: selectedModels
-		};
-
-		history.messages[userMessageId] = userMessage;
-		history.currentId = userMessageId;
-
-		if (messages.length !== 0) {
-			history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
-		}
-
-		await sendMessage(history, userMessageId);
-	};
-
 	const continueAfterHITLFeedback = async (
-		stageId: string,
+		batchId: string,
 		groupId: string,
 		question: string,
 		decision: string,
@@ -1775,10 +1719,10 @@
 	) => {
 		const continuationPrompt =
 			decision === 'reject'
-				? `The expert rejected your proof (stage ID: ${stageId}, group: "${groupId}"). ` +
+				? `The expert rejected your proof (batch: ${batchId}, group: "${groupId}"). ` +
 					`Feedback: "${notes}". Original question: "${question}". ` +
 					`Please address the feedback and re-prove.`
-				: `The expert requested clarification on your proof (stage ID: ${stageId}, group: "${groupId}"). ` +
+				: `The expert requested clarification on your proof (batch: ${batchId}, group: "${groupId}"). ` +
 					`Feedback: "${notes}". Original question: "${question}". ` +
 					`Please address the clarification request.`;
 
@@ -2869,7 +2813,7 @@
 
 				<PolicyCanvas
 					bind:this={canvasPaneComponent}
-					sessionId={$policyCanvasSessionId}
+					batchId={$policyCanvasBatchId}
 					bind:pane={canvasPane}
 					apiBase={BASEDQED_API}
 				/>
