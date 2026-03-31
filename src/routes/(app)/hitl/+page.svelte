@@ -4,6 +4,19 @@
 
 	const API_BASE = `http://${window.location.hostname}:8000`;
 
+	type BatchItem = {
+		batch_id: string;
+		conversation_id: string;
+		group_id: string;
+		phase: string;
+		created_at: string;
+		original_question: string | null;
+		snapshot_hash: string;
+		definitions: { filename: string; decision: string | null }[];
+		question_filename: string | null;
+		question_decision: string | null;
+	};
+
 	type AxiomItem = {
 		symbol: string;
 		plain_comment: string;
@@ -30,6 +43,7 @@
 	};
 
 	let items: ProofDetail[] = [];
+	let batchItems: BatchItem[] = [];
 	let loading = true;
 	let refreshing = false;
 
@@ -48,7 +62,17 @@
 			);
 			items = details.filter(Boolean) as ProofDetail[];
 		} catch (e: any) {
-			toast.error(`Failed to load proof history: ${e.message}`);
+			toast.error(`Failed to load review history: ${e.message}`);
+		}
+
+		// Fetch completed batch reviews
+		try {
+			const batchRes = await fetch(`${API_BASE}/hitl/batch/completed`);
+			if (batchRes.ok) {
+				batchItems = await batchRes.json();
+			}
+		} catch (e) {
+			// Non-fatal — old system items still show
 		} finally {
 			loading = false;
 			refreshing = false;
@@ -77,12 +101,12 @@
 </script>
 
 <svelte:head>
-	<title>Proof History — BasedQED</title>
+	<title>Review History — BasedQED</title>
 </svelte:head>
 
 <div class="w-full max-w-4xl mx-auto p-6 pb-20 flex-1 overflow-y-auto">
 	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-bold dark:text-white">Proof History</h1>
+		<h1 class="text-2xl font-bold dark:text-white">Review History</h1>
 		<button
 			class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
 			on:click={loadItems}
@@ -97,18 +121,78 @@
 
 	{#if loading}
 		<div class="flex items-center justify-center py-20 text-gray-500 dark:text-gray-400">
-			Loading proof history...
+			Loading review history...
 		</div>
-	{:else if items.length === 0}
+	{:else if items.length === 0 && batchItems.length === 0}
 		<div class="flex flex-col items-center justify-center py-20 text-gray-500 dark:text-gray-400 gap-2">
 			<svg xmlns="http://www.w3.org/2000/svg" class="size-12 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
 				<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
 			</svg>
-			<p class="font-medium">No approved proofs yet</p>
-			<p class="text-sm">Approved proofs will appear here for reference.</p>
+			<p class="font-medium">No reviews yet</p>
+			<p class="text-sm">Approved reviews will appear here for reference.</p>
 		</div>
 	{:else}
-		<p class="text-sm text-gray-500 dark:text-gray-400 mt-4">{items.length} approved proof{items.length !== 1 ? 's' : ''}</p>
+		<!-- Batch Reviews -->
+		{#if batchItems.length > 0}
+			<p class="text-sm text-gray-500 dark:text-gray-400 mt-4">{batchItems.length} batch review{batchItems.length !== 1 ? 's' : ''}</p>
+
+			{#each batchItems as batch (batch.batch_id)}
+				<div class="border dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900 shadow-sm mt-6">
+					<!-- Header bar -->
+					<div class="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700">
+						<span class="px-2 py-0.5 text-xs font-semibold rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">BATCH REVIEW</span>
+						<span class="px-2 py-0.5 text-xs font-semibold rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">APPROVED</span>
+						<span class="text-xs text-gray-500 dark:text-gray-400">{formatDate(batch.created_at)}</span>
+						<span class="text-xs text-gray-400 dark:text-gray-500">Group: {batch.group_id}</span>
+					</div>
+
+					<div class="p-4 flex flex-col gap-4">
+						<!-- Original question -->
+						{#if batch.original_question}
+							<div>
+								<p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Question</p>
+								<p class="text-sm dark:text-white">{batch.original_question}</p>
+							</div>
+						{/if}
+
+						<!-- Approved definitions -->
+						{#if batch.definitions.length > 0}
+							<div>
+								<p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Approved definitions ({batch.definitions.length})</p>
+								<div class="flex flex-col gap-2">
+									{#each batch.definitions as def}
+										<div class="rounded-lg border dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800">
+											<span class="font-mono text-sm dark:text-white">{def.filename}</span>
+											{#if def.decision}
+												<span class="ml-2 px-2 py-0.5 text-xs font-semibold rounded {statusBadgeClass(def.decision)}">{def.decision.replace('_', ' ').toUpperCase()}</span>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+
+						<!-- Question file -->
+						{#if batch.question_filename}
+							<div>
+								<p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Question</p>
+								<div class="rounded-lg border dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800">
+									<span class="font-mono text-sm dark:text-white">{batch.question_filename}</span>
+									{#if batch.question_decision}
+										<span class="ml-2 px-2 py-0.5 text-xs font-semibold rounded {statusBadgeClass(batch.question_decision)}">{batch.question_decision.replace('_', ' ').toUpperCase()}</span>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/each}
+		{/if}
+
+		<!-- Legacy Proof Items -->
+		{#if items.length > 0}
+			<p class="text-sm text-gray-500 dark:text-gray-400 mt-4">{items.length} approved proof{items.length !== 1 ? 's' : ''}</p>
+		{/if}
 
 		{#each items as item (item.stage_id)}
 			<div class="border dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900 shadow-sm mt-6">
