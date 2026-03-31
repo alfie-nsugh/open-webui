@@ -2,13 +2,13 @@
 	import { Pane, PaneResizer } from 'paneforge';
 	import { onDestroy, onMount } from 'svelte';
 
-	import { showPolicyCanvas, policyCanvasSessionId } from '$lib/stores';
+	import { showPolicyCanvas } from '$lib/stores';
 	import Drawer from '../common/Drawer.svelte';
 	import PolicyCanvasContent from './PolicyCanvasContent.svelte';
 
 	// ── Props ──────────────────────────────────────────────────────────────
 	export let pane;
-	export let sessionId = null;
+	export let batchId = null;
 	export let apiBase = 'http://localhost:8000';
 
 	// ── Pane layout (mirrors ChatControls) ────────────────────────────────
@@ -95,10 +95,6 @@
 		}
 	});
 
-	$: if (sessionId) {
-		policyCanvasSessionId.set(sessionId);
-	}
-
 
 </script>
 
@@ -111,7 +107,7 @@
 			}}
 		>
 			<div class="h-full bg-white dark:bg-gray-900 dark:text-gray-100">
-				<PolicyCanvasContent {sessionId} {apiBase} />
+				<PolicyCanvasContent {batchId} {apiBase} />
 			</div>
 		</Drawer>
 	{/if}
@@ -160,7 +156,7 @@
 					class="w-full bg-white dark:shadow-lg dark:bg-gray-850 z-40 pointer-events-auto overflow-y-auto scrollbar-hidden"
 					id="policy-canvas-container"
 				>
-					<PolicyCanvasContent {sessionId} {apiBase} />
+					<PolicyCanvasContent {batchId} {apiBase} />
 				</div>
 			</div>
 		{/if}
