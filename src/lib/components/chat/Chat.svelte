@@ -656,7 +656,9 @@
 	// Reactively connect SSE when conversation ID becomes available or changes
 	$: {
 		const conversationId = chatIdProp || $chatId;
+		console.log('[BasedQED] SSE reactive block fired. chatIdProp:', chatIdProp, '$chatId:', $chatId, 'conversationId:', conversationId);
 		if (conversationId) {
+			console.log('[BasedQED] Connecting SSE for conversation:', conversationId);
 			connectBatchSSE(conversationId);
 		}
 	}
